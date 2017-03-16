@@ -1,0 +1,188 @@
+---
+title: "Brandon Lawson 911 Call"
+author: "Katie Daisey"
+output: html_notebook
+---
+
+All analysis done in [R](https://cran.r-project.org).  This is an R Notebook which can be extracted using the drop down menu in the upper right corner. 
+
+
+File Name | Description
+----------|----------------------------------------------------------------
+BLAnalysis.nb.html | (This file)  HTML file explaining and providing all steps necessary to reproduce the analysis
+BLCall.mp3 | Downloaded mp3 file from youtube, described below
+oldcall.wav | Wave version of analyzed portion of call
+newcall.wav | Best output of cleaned call
+left.wav | Left channel of uncleaned call
+right.wav | Right channel of uncleaned call
+other_versions | Folder containing other versions of cleaned left and right channels, including good and not so good versions
+
+
+```{r}
+library(tuneR)
+```
+
+# Audio
+
+File downloaded from [youtube](https://www.youtube.com/watch?v=_FXg-zxS1lE) and converted via an [online service](http://www.listentoyoutube.com).
+
+From the youtube description, the file contains:
+
+>Published on Feb 16, 2014
+>This video contains two versions of the 911 call. The first is the original. The second is a slow version done by our Sound >Technician with the hopes of obtaining clarity of the call for help.
+>Below is an approx transcript. There is quite a bit of distortion in the the recording. The ding you hear in the beginning is >NOT a car door, or truck door, ding. It is the natural occurrence of the 911 dispatch recording equipment. The whisper you >hear prior to the start of the slow version is our sound tech, not Brandon.
+>2013; 050 and 38 seconds
+
+```{r}
+call <- readMP3("BLCall.mp3")
+summary(call)
+```
+
+
+The call itself visually looks like this:
+
+```{r}
+plot(call)
+```
+
+The file contains ~13 seconds of added intro, 
+
+Time Stamp | Time (s) | Event
+-----------|----------|-------
+0:00       |       0  | Intro
+0:13       |      13  | Call Begins
+1:11       |      71  | Call Repeats, slower
+2:26       |     146  | Outro
+
+
+
+```{r}
+left  <- call@left
+right <- call@right
+```
+
+The sampling rate gives the number of data points recorded per second. 
+
+This explains why slowed audio sounds "spacey". The sampling rate was determined when the audio was recorded and connot be increased in post-production. Slowing audio separates the recorded measurements and adds spaces between them.
+
+
+It is easy to calculate the number of the data point that corresponds with the second where the call actually begins and ends using the sampling rate.
+
+```{r}
+start <- (call@samp.rate * 13) + 1
+end   <- (call@samp.rate * 71)
+```
+
+
+```{r}
+left  <-  left[start:end]
+right <- right[start:end]
+```
+
+
+```{r, error=F}
+call@left  <-  left
+call@right <- right
+plot(call)
+```
+
+
+# Analysis
+
+I'm now ready to begin the analysis.
+
+This analysis is based upon principal components analysis or PCA. PCA looks for variation in the data in orthogonal directions. This means PCA attempts to identify and separate distinct sources of variation in a given dataset. In audio, this might be from different speakers, background noise, line noise, etc.
+
+
+PCA does require multiple samples, and two is not enough. Instead I'm going to chunk the data into 600 point sections. 
+
+```{r}
+left  <- matrix( left, ncol = 600, byrow = T)
+right <- matrix(right, ncol = 600, byrow = T)
+```
+
+
+
+Plotted on top of each other, this creates a cacapony of noise. Just imagine what it would sound like to listen to this <1 sec long clip!
+
+
+```{r}
+matplot(t(left), type = "l")
+```
+
+
+Luckily, the math behind PCA doesn't care.
+
+
+## Left
+
+
+```{r}
+pca1 <- prcomp(left, center = F, scale. = F)
+```
+
+
+```{r}
+plot(pca1, n = 20)
+```
+
+The number and identities of principal components kept versus those discarded can be changed. Keep to few and useful information is lost. Keep to many and the noise creeps in. Keep the wrong ones and interfering noises show up. Get rid of the wrong ones and people no longer speak. 
+
+Unfortunately, while the field has some thoughts on what components to keep, it's still an art, not a science. Here I decided (via a combination of intiution and trial and error) to keep the first 90 out of 600 components, hoping that the last 510 components are mostly noise. 
+
+```{r}
+newleft <- pca1$x[,c(1:600)] %*% t(pca1$rotation[,c(1:600)])
+callleft <- as.vector(t(newleft))
+callleft <- Wave(left = callleft)
+callleft <- normalize(callleft, unit = '16')
+plot(callleft)
+```
+
+```{r}
+writeWave(callleft, 'left_1_100.wav')
+```
+
+## Right
+
+```{r}
+pca2 <- prcomp(right, center = F, scale. = F)
+```
+
+```{r}
+plot(pca2)
+```
+
+```{r}
+newright <- pca2$x[,c(1:90)] %*% t(pca2$rotation[,c(1:90)])
+callright <- as.vector(t(newright))
+callright <- Wave(left = callright) # left channel in mono
+callright <- normalize(callright, unit = '16')
+plot(callright)
+```
+```{r}
+writeWave(callright, 'right_1_90.wav')
+```
+
+
+
+# Stereo
+
+Now I join the cleaned left and right channels back into stereo and output a .wav file.
+
+```{r}
+newcall <- Wave(left = callleft@left, right = callright@left, bit = 16, samp.rate = 44100)
+writeWave(newcall, 'newcall.wav')
+```
+
+```{r}
+writeWave(call, 'oldcall.wav')
+```
+
+
+
+
+
+
+
+
+
